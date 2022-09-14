@@ -1,0 +1,19 @@
+{
+    "configurations": [
+        {
+            "cwd": "${workspaceFolder}/mudapp",
+            "env": {
+                "PYTHONPATH": "${cwd}"
+            },
+            "name": "Dynamic Python: FastAPI",
+            "type": "python",
+            "request": "launch",
+            "module": "uvicorn",
+            "args": [
+                "main:app"
+            ],
+            "jinja": true,
+            "justMyCode": true
+        }
+    ]
+}
