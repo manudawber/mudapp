@@ -1,60 +1,117 @@
 from typing import List
+from unicodedata import name
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Response, status
+from fastapi import Depends, FastAPI, HTTPException, status
+from sqlalchemy.orm import Session
 
-from schemas import TodoListItemRequest, TodoListRequest, TodoListResponse
+from database import engine, get_session
+from models import Base, TodoList, ListItem
+from schemas import ListItemRequest, ListItemResponse, ListRequest, ListResponse
 
+Base.metadata.create_all(engine)
 app = FastAPI()
-list_collection = {
-    "4bf691": TodoListRequest(
-        name="Examples",
-        items=[
-            TodoListItemRequest(name="Make an example list"),
-            TodoListItemRequest(name="Query the list using my API"),
-        ],
-    )
-}
 
 
-@app.get("/", response_model=List[TodoListResponse])
+@app.get("/")
 def read_root():
     """
-    Return a list of all todo lists stored in the app.
+    API information.
     """
-    return [
-        TodoListResponse(id=id, **list.dict()) for id, list in list_collection.items()
-    ]
+    return {"message": "Mudapp to-do list, for all your shit."}
 
 
-@app.post("/list", response_model=TodoListResponse, status_code=status.HTTP_201_CREATED)
-def create_list(request: TodoListRequest):
+@app.get("/list", response_model=List[ListResponse])
+def get_all_lists(session: Session = Depends(get_session)):
     """
-    Create a todo list using the request content.
+    Return a list of all to-do lists stored by the app.
     """
-    id = generate_id()
-    list_collection[id] = request
-    return TodoListResponse(id=id, **list_collection[id].dict())
+    response = []
+    lists = session.query(TodoList).all()
+    for list in lists:
+        items = session.query(ListItem).filter_by(id=list.id).all()
+        list_response = ListResponse(
+            id=list.id,
+            name=list.name,
+            items=[
+                ListItemResponse(
+                    id=item.id,
+                    name=item.name,
+                    completed=item.completed,
+                    due_date=item.due_date if item.due_date else None,
+                )
+                for item in items
+            ],
+        )
+        response.append(list_response)
+
+    return response
 
 
-@app.get("/list/{id}", response_model=TodoListResponse)
-def read_list(id: str):
+@app.post("/list", response_model=ListResponse, status_code=status.HTTP_201_CREATED)
+def create_list(request: ListRequest, session: Session = Depends(get_session)):
     """
-    Get a list using the ID provided in the path.
+    Create a to-do list using the request content.
     """
-    try:
-        return TodoListResponse(id=id, **list_collection[id].dict())
-    except KeyError:
-        raise HTTPException(status_code=404, detail="Item not found")
+    # create list
+    todo_list = TodoList(name=request.name)
+    session.add(todo_list)
+    session.commit()
+
+    # create list items
+    list_items = []
+    if request.items:
+        list_items = [
+            ListItem(
+                name=item.name,
+                completed=False,
+                due_date=item.due_date,
+                id=todo_list.id
+            ) for item in request.items
+        ]
+        session.add_all(list_items)
+        session.commit()
+
+    return ListResponse(id=todo_list.id, name=request.name, items=list_items)
 
 
-@app.put("/list/{id}", response_model=TodoListResponse)
-def update_list(id: str, request: TodoListRequest):
-    if id not in list_collection:
-        raise HTTPException(status_code=404, detail="Item not found")
-    list_collection[id] = request
-    return TodoListResponse(id=id, **list_collection[id].dict())
+@app.get("/list/{id}", response_model=ListResponse)
+def get_list(id: int, session: Session = Depends(get_session)):
+    """
+    Return a specific list by ID.
+    """
+    list: TodoList = session.query(TodoList).get(id)
+    if list is None:
+        raise HTTPException(status_code=404, detail="List not found.")
+
+    return ListResponse(id=list.id, name=list.name, items=list.items)
 
 
-def generate_id():
-    return uuid4().hex[:7]
+@app.put("/list/{id}", response_model=ListResponse)
+def rename_list(
+    id: int, request: ListRequest, session: Session = Depends(get_session)
+):
+    """
+    Rename an existing to-do list.
+    """
+    list: TodoList = session.query(TodoList).get(id)
+    if list is None:
+        raise HTTPException(status_code=404, detail="List not found.")
+    list.name = request.name
+    session.commit()
+
+    return ListResponse(id=list.id, name=list.name, items=list.items)
+
+
+@app.delete("/list/{id}")
+def delete_list(id: int, session: Session = Depends(get_session)):
+    """
+    Delete an existing to-do list.
+    """
+    list: TodoList = session.query(TodoList).get(id)
+    if list is None:
+        raise HTTPException(status_code=404, detail="List not found.")
+    session.delete(list)
+    session.commit()
+
+    return {"message": "List deleted."}

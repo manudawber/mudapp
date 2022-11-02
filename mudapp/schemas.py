@@ -1,18 +1,28 @@
 from datetime import datetime
+from lib2to3.pgen2.token import OP
 from typing import List, Optional
 
 from pydantic import BaseModel
 
 
-class TodoListItemRequest(BaseModel):
+class ListItemRequest(BaseModel):
     name: str
-    description: Optional[str] = None
+    due_date: Optional[datetime] = None
 
 
-class TodoListRequest(BaseModel):
-    name: str
-    items: Optional[List[TodoListItemRequest]] = None
-
-
-class TodoListResponse(TodoListRequest):
+class ListItemResponse(BaseModel):
     id: str
+    name: str
+    completed: bool
+    due_date: str
+
+
+class ListRequest(BaseModel):
+    name: str
+    items: Optional[List[ListItemRequest]] = None
+
+
+class ListResponse(ListRequest):
+    id: str
+    name: str
+    items: List[ListItemResponse]
